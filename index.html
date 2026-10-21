@@ -15,9 +15,9 @@
     .intro { max-width: 520px; color: #526f80; line-height: 1.7; margin: 0 0 30px; }
     .panel { background: #fff; border: 1px solid #d5e8f3; border-radius: 24px; padding: 28px; box-shadow: 0 14px 45px #315a7410; }
     label { display: block; font-size: .9rem; font-weight: 650; margin-bottom: 10px; }
-    .search { display: flex; gap: 10px; }
-    input, button { font: inherit; border-radius: 12px; min-height: 52px; }
-    input { width: 100%; min-width: 0; padding: 12px 16px; background: #f8fcff; border: 1px solid #bbd6e6; color: #173b51; }
+    input, select, button { font: inherit; border-radius: 12px; min-height: 52px; }
+    input, select { width: 100%; min-width: 0; padding: 12px 16px; background: #f8fcff; border: 1px solid #bbd6e6; color: #173b51; }
+    .activity-field { margin-top: 18px; }
     input::placeholder { color: #6c8594; }
     button { border: 0; padding: 12px 22px; background: #1679b4; color: white; font-weight: 650; cursor: pointer; white-space: nowrap; }
     button:hover { background: #116395; }
@@ -40,6 +40,9 @@
     .hour { font-size: 1.4rem; font-weight: 750; letter-spacing: -.03em; }
     .metric { font-size: 1.05rem; font-weight: 600; }
     .metric small { display: block; margin-top: 3px; color: #607d8f; font-size: .73rem; font-weight: 400; }
+    .metrics { grid-column: 2 / -1; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+    .feels-like { display: block; margin-top: 6px; color: #526f80; font-size: .8rem; font-weight: 400; }
+    .data-warning { grid-column: 1 / -1; margin: 0; font-size: .8rem; color: #526f80; }
     details { margin-top: 28px; color: #526f80; font-size: .85rem; line-height: 1.7; }
     summary { cursor: pointer; }
     details p { margin: 10px 0 0; }
@@ -53,13 +56,19 @@
     <header>
       <p class="eyebrow">Tu momento al aire libre</p>
       <h1>¿A qué hora salgo?</h1>
-      <p class="intro">Encuentra las buenas horas de hoy para disfrutar fuera. Una temperatura agradable y pocas posibilidades de lluvia.</p>
+      <p class="intro">Elige tu actividad y encuentra las buenas horas de hoy según la previsión de tu municipio.</p>
     </header>
     <section class="panel" aria-label="Buscar buenas horas">
       <form id="search-form">
         <label for="municipality">¿En qué municipio estás?</label>
-        <div class="search">
-          <input id="municipality" name="municipality" type="text" placeholder="Por ejemplo, Sevilla" required maxlength="160" autocomplete="off" aria-describedby="search-hint">
+        <input id="municipality" name="municipality" type="text" placeholder="Por ejemplo, Sevilla" required maxlength="160" autocomplete="off" aria-describedby="search-hint">
+        <div class="activity-field">
+          <label for="activity">¿Qué actividad quieres hacer?</label>
+          <select id="activity" name="activity" required>
+            <option value="">Selecciona una actividad</option>
+          </select>
+        </div>
+        <div class="activity-field">
           <button id="search-button" type="submit">Buscar horas</button>
         </div>
         <p class="hint" id="search-hint">Solo las horas que quedan de hoy, en la hora local del municipio.</p>
@@ -73,7 +82,7 @@
     </section>
     <details>
       <summary>¿Qué consideramos una buena hora?</summary>
-      <p>Entre 18 y 27 °C, ambos incluidos, y menos de un 10 % de probabilidad de lluvia. Desde las 06:00 hasta antes de las 23:00, con una pausa de 14:00 a 15:30, incluidos los extremos. La previsión es por horas: las 14:00 y las 15:00 no se consideran buenas horas.</p>
+      <p>Las buenas horas cumplen las condiciones meteorológicas de la actividad elegida y se destacan con borde azul. Se muestran todas las horas futuras disponibles de hoy, en la hora local del municipio. Para deportes de interior, todas las horas son buenas porque el tiempo exterior no influye.</p>
     </details>
     <footer>Previsión y ubicaciones de <a href="https://open-meteo.com/" target="_blank" rel="noopener noreferrer">Open-Meteo</a>. Las condiciones son estimaciones y pueden cambiar.</footer>
   </main>
@@ -81,11 +90,44 @@
     'use strict';
     const form = document.querySelector('#search-form');
     const input = document.querySelector('#municipality');
+    const activityInput = document.querySelector('#activity');
     const button = document.querySelector('#search-button');
     const status = document.querySelector('#status');
     const results = document.querySelector('#results');
     const hoursList = document.querySelector('#hours');
-    const numberFormat = new Intl.NumberFormat('es-ES', { maximumFractionDigits: 1 });
+    const HOURLY = 'temperature_2m,precipitation_probability,precipitation,relative_humidity_2m,apparent_temperature,wind_speed_10m,wind_direction_10m,snow_depth';
+    // Inclusive limits; omitted variables do not take part in evaluation.
+    const RULES = {
+      winter: { apparent_temperature: [-10, 5], precipitation_probability: [0, 30], wind_speed_10m: [0, 35], snow_depth: [0.15, Infinity] },
+      ice: { apparent_temperature: [-10, 3], precipitation_probability: [0, 10], precipitation: [0, 0], wind_speed_10m: [0, 20] },
+      sled: { apparent_temperature: [-15, 2], precipitation_probability: [0, 20], wind_speed_10m: [0, 25] },
+      water: { apparent_temperature: [22, 35], precipitation_probability: [0, 10], precipitation: [0, 0], wind_speed_10m: [0, 15], snow_depth: [0, 0] },
+      endurance: { apparent_temperature: [10, 25], precipitation_probability: [0, 20], precipitation: [0, 0.1], wind_speed_10m: [0, 25], snow_depth: [0, 0] },
+      wind: { apparent_temperature: [15, 30], precipitation_probability: [0, 25], precipitation: [0, 0.5], wind_speed_10m: [20, Infinity], snow_depth: [0, 0] },
+      golf: { apparent_temperature: [12, 28], precipitation_probability: [0, 10], precipitation: [0, 0], wind_speed_10m: [0, 15], snow_depth: [0, 0] },
+      indoor: {}
+    };
+    const GROUPS = [
+      ['Deportes de invierno', [['Esquí', 'winter'], ['Snowboard', 'winter'], ['Patinaje sobre hielo exterior', 'ice'], ['Hockey exterior', 'ice'], ['Bobsleigh', 'sled'], ['Skeleton', 'sled'], ['Luge', 'sled']]],
+      ['Deportes de verano y clima cálido', [['Natación', 'water'], ['Waterpolo', 'water'], ['Vela', 'water'], ['Esquí acuático', 'water'], ['Ciclismo de carretera', 'endurance'], ['Atletismo', 'endurance'], ['Triatlón', 'endurance']]],
+      ['Deportes de clima ventoso o marítimo', [['Kitesurf', 'wind'], ['Windsurf', 'wind'], ['Surf', 'wind'], ['Golf', 'golf']]],
+      ['Deportes de interior', [['Baloncesto', 'indoor'], ['Bádminton', 'indoor'], ['Tenis de mesa', 'indoor'], ['Escalada en rocódromo', 'indoor']]]
+    ];
+    const ACTIVITIES = new Map();
+    for (const [label, activities] of GROUPS) {
+      const group = document.createElement('optgroup');
+      group.label = label;
+      for (const [name, rule] of activities) {
+        const id = String(ACTIVITIES.size + 1);
+        ACTIVITIES.set(id, { name, rules: RULES[rule] });
+        const option = document.createElement('option');
+        option.value = id;
+        option.textContent = name;
+        group.append(option);
+      }
+      activityInput.append(group);
+    }
+    let searchVersion = 0;
 
     function setStatus(message, error = false) {
       status.textContent = message;
@@ -112,84 +154,132 @@
     }
 
     // ISO local strings sort chronologically without applying the browser's timezone.
-    function localNow(timezone) {
+    function localNow(timezone, date = new Date()) {
       const parts = new Intl.DateTimeFormat('en-GB', {
         timeZone: timezone, year: 'numeric', month: '2-digit', day: '2-digit',
         hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23'
-      }).formatToParts(new Date());
+      }).formatToParts(date);
       const values = Object.fromEntries(parts.map(part => [part.type, part.value]));
       return `${values.year}-${values.month}-${values.day}T${values.hour}:${values.minute}:${values.second}`;
     }
 
-    function selectHours(hourly, now) {
-      if (!hourly || !Array.isArray(hourly.time) || !Array.isArray(hourly.temperature_2m) ||
-          !Array.isArray(hourly.precipitation_probability) || !hourly.time.length ||
-          hourly.time.length !== hourly.temperature_2m.length ||
-          hourly.time.length !== hourly.precipitation_probability.length) {
-        throw new Error('La previsión recibida está incompleta. Inténtalo de nuevo.');
-      }
+    function validValue(key, value) {
+      if (!Number.isFinite(value)) return false;
+      if (key === 'precipitation_probability' || key === 'relative_humidity_2m') return value >= 0 && value <= 100;
+      if (key === 'wind_direction_10m') return value >= 0 && value <= 360;
+      if (['precipitation', 'wind_speed_10m', 'snow_depth'].includes(key)) return value >= 0;
+      return true;
+    }
+
+    function evaluate(data, rules) {
+      return Object.entries(rules).every(([key, [min, max]]) =>
+        validValue(key, data[key]) && data[key] >= min && data[key] <= max);
+    }
+
+    function selectHours(hourly, now, timezone, rules) {
+      if (!hourly || !Array.isArray(hourly.time)) throw new Error('La previsión recibida es inválida. Inténtalo de nuevo.');
       const upcoming = [];
-      let missing = 0;
+      const today = localNow(timezone, now).slice(0, 10);
+      const covered = new Set();
       hourly.time.forEach((time, index) => {
         if (typeof time !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(time)) {
           throw new Error('La previsión recibida contiene horas inválidas. Inténtalo de nuevo.');
         }
-        if (time.slice(0, 10) !== now.slice(0, 10) || `${time}:00` <= now) return;
-        const temperature = hourly.temperature_2m[index];
-        const rain = hourly.precipitation_probability[index];
-        const hasTemperature = Number.isFinite(temperature);
-        const hasRain = Number.isFinite(rain) && rain >= 0 && rain <= 100;
-        if (!hasTemperature || !hasRain) missing++;
-        const minutes = Number(time.slice(11, 13)) * 60 + Number(time.slice(14, 16));
-        const isGood = hasTemperature && hasRain && temperature >= 18 && temperature <= 27 && rain < 10 &&
-          minutes >= 360 && minutes < 1380 && !(minutes >= 840 && minutes <= 930);
-        upcoming.push({ time, temperature: hasTemperature ? temperature : null, rain: hasRain ? rain : null, isGood });
+        const instant = new Date(`${time}:00Z`);
+        if (!Number.isFinite(instant.getTime())) throw new Error('La previsión contiene una fecha inválida.');
+        if (instant <= now || localNow(timezone, instant).slice(0, 10) !== today || covered.has(instant.getTime())) return;
+        covered.add(instant.getTime());
+        const data = Object.fromEntries(HOURLY.split(',').map(key => [key, Array.isArray(hourly[key]) ? hourly[key][index] : null]));
+        const requiredMissing = Object.keys(rules).some(key => !validValue(key, data[key]));
+        const displayMissing = ['temperature_2m', 'apparent_temperature', ...Object.keys(rules)].some(key => !validValue(key, data[key]));
+        upcoming.push({ instant, time: localNow(timezone, instant), data, requiredMissing, displayMissing, isGood: evaluate(data, rules) });
       });
-      upcoming.sort((a, b) => a.time.localeCompare(b.time));
-      return { upcoming, missing };
+      upcoming.sort((a, b) => a.instant - b.instant);
+      // The UTC grid remains hourly across local daylight-saving transitions.
+      let expected = 0;
+      for (let stamp = Math.floor(now.getTime() / 3600000) * 3600000 + 3600000;
+           stamp <= now.getTime() + 48 * 3600000; stamp += 3600000) {
+        if (localNow(timezone, new Date(stamp)).slice(0, 10) === today) expected++;
+      }
+      return { upcoming, expected, coverageMissing: upcoming.length < expected };
     }
 
-    function render(place, forecast) {
-      const timezone = forecast.timezone || place.timezone;
+    function render(place, forecast, activity) {
+      const timezone = place.timezone;
       if (!timezone) throw new Error('No se ha podido determinar la zona horaria del municipio. Inténtalo de nuevo.');
-      const now = localNow(timezone);
-      const { upcoming, missing } = selectHours(forecast.hourly, now);
+      const now = new Date();
+      try { localNow(timezone, now); } catch { throw new Error('La zona horaria del municipio no es válida.'); }
+      const { upcoming, expected, coverageMissing } = selectHours(forecast.hourly, now, timezone, activity.rules);
       const goodCount = upcoming.filter(entry => entry.isGood).length;
-      document.querySelector('#location').textContent = [place.name, place.country].filter(Boolean).join(', ');
+      document.querySelector('#location').textContent = [place.name, place.admin1, place.country].filter(Boolean).join(', ');
       document.querySelector('#date').textContent = new Intl.DateTimeFormat('es-ES', {
         timeZone: timezone, weekday: 'long', day: 'numeric', month: 'long'
       }).format(new Date());
-      const summary = !upcoming.length
-        ? 'Hoy no quedan horas de previsión por mostrar.'
+      const summary = !expected
+        ? 'No quedan horas disponibles en el día de hoy.'
+        : !upcoming.length ? 'No hay datos de cobertura para las horas restantes de hoy.'
         : goodCount
           ? `${goodCount === 1 ? 'Queda 1 buena hora' : `Quedan ${goodCount} buenas horas`} para salir hoy.`
-          : 'Hoy no quedan buenas horas que cumplan estas condiciones.';
-      document.querySelector('#summary').textContent = summary + ` Horas locales de ${place.name}.` +
+          : 'Ninguna hora cumple las condiciones óptimas.';
+      document.querySelector('#summary').textContent = `${activity.name}. ` + summary + ` Horas locales de ${place.name}.` +
         (upcoming.length ? ' Las buenas horas tienen fondo blanco y borde azul brillante; las demás, fondo gris y borde discontinuo.' : '') +
-        (missing ? ' Algunas horas tienen datos incompletos: se indican con «Sin datos» y no se destacan como buenas.' : '');
+        (coverageMissing ? ' La cobertura de la previsión es incompleta.' : '') +
+        (!Object.keys(activity.rules).length ? ' En interior, el tiempo exterior no condiciona la actividad.' : '');
       hoursList.replaceChildren();
       for (const entry of upcoming) {
         const item = document.createElement('li');
         if (!entry.isGood) item.className = 'not-good';
-        item.setAttribute('aria-label', `${entry.time.slice(11, 16)}: ${entry.isGood ? 'buena hora' : 'no cumple las condiciones de buena hora'}`);
+        item.setAttribute('aria-label', `${entry.time.slice(11, 16)}: ${entry.isGood ? 'buena hora' : entry.requiredMissing ? 'datos insuficientes para evaluar' : 'no cumple las condiciones de buena hora'}`);
         const hour = document.createElement('time');
         hour.className = 'hour';
-        hour.dateTime = entry.time;
+        hour.dateTime = entry.instant.toISOString();
         hour.textContent = entry.time.slice(11, 16);
+        hour.title = new Intl.DateTimeFormat('es-ES', { timeZone: timezone, hour: '2-digit', minute: '2-digit', timeZoneName: 'short' }).format(entry.instant);
         item.append(hour);
-        for (const [value, label] of [[entry.temperature === null ? 'Sin datos' : `${numberFormat.format(entry.temperature)} °C`, 'Temperatura'], [entry.rain === null ? 'Sin datos' : `${numberFormat.format(entry.rain)} %`, 'Prob. de lluvia']]) {
+        const metrics = document.createElement('div');
+        metrics.className = 'metrics';
+        const format = (key, unit) => validValue(key, entry.data[key])
+          ? `${new Intl.NumberFormat('es-ES', { maximumFractionDigits: key === 'snow_depth' ? 2 : 1 }).format(entry.data[key])} ${unit}` : 'Sin datos';
+        const temperature = document.createElement('span');
+        temperature.className = 'metric';
+        temperature.textContent = format('temperature_2m', '°C');
+        const caption = document.createElement('small');
+        caption.textContent = 'Temperatura';
+        const feels = document.createElement('span');
+        feels.className = 'feels-like';
+        feels.textContent = `Sensación térmica: ${format('apparent_temperature', '°C')}`;
+        temperature.append(caption);
+        temperature.append(feels);
+        metrics.append(temperature);
+        const fields = {
+          precipitation_probability: ['%', 'Prob. de precipitación'],
+          precipitation: ['mm', 'Precipitación (hora anterior)'],
+          wind_speed_10m: ['km/h', 'Viento'],
+          snow_depth: ['m', 'Espesor de nieve']
+        };
+        for (const [key, [unit, label]] of Object.entries(fields)) {
+          if (!Object.hasOwn(activity.rules, key)) continue;
           const metric = document.createElement('span');
           metric.className = 'metric';
-          metric.textContent = value;
+          metric.textContent = format(key, unit);
           const caption = document.createElement('small');
           caption.textContent = label;
           metric.append(caption);
-          item.append(metric);
+          metrics.append(metric);
+        }
+        item.append(metrics);
+        if (entry.displayMissing) {
+          const warning = document.createElement('p');
+          warning.className = 'data-warning';
+          warning.textContent = entry.requiredMissing
+            ? 'Esta hora no puede evaluarse completamente: faltan datos necesarios.'
+            : 'Faltan datos informativos; la evaluación de la actividad está completa.';
+          item.append(warning);
         }
         hoursList.append(item);
       }
       results.hidden = false;
-      setStatus(upcoming.length ? 'Previsión actualizada. Ya puedes consultar todas las horas restantes de hoy y distinguir las buenas horas.' : 'Consulta completada. Hoy no quedan horas de previsión por mostrar.');
+      setStatus(upcoming.length ? 'Previsión actualizada. Consulta las horas para tu actividad.' : summary);
     }
 
     form.addEventListener('submit', async event => {
@@ -201,6 +291,13 @@
         input.focus();
         return;
       }
+      const activity = ACTIVITIES.get(activityInput.value);
+      if (!activity) {
+        setStatus('Selecciona una actividad para buscar sus buenas horas.', true);
+        activityInput.focus();
+        return;
+      }
+      const version = ++searchVersion;
       button.disabled = true;
       button.textContent = 'Consultando…';
       form.setAttribute('aria-busy', 'true');
@@ -210,6 +307,7 @@
         const geoURL = new URL('https://geocoding-api.open-meteo.com/v1/search');
         geoURL.search = new URLSearchParams({ name: municipality, count: '1', language: 'es' });
         const geo = await fetchJSON(geoURL);
+        if (version !== searchVersion) return;
         if (!Array.isArray(geo.results) || !geo.results.length) {
           setStatus('El municipio introducido no es válido, por favor introduzca otro.', true);
           input.focus();
@@ -223,19 +321,32 @@
         const forecastURL = new URL('https://api.open-meteo.com/v1/forecast');
         forecastURL.search = new URLSearchParams({
           latitude: String(place.latitude), longitude: String(place.longitude),
-          hourly: 'temperature_2m,precipitation_probability', forecast_days: '1',
-          timezone: place.timezone || 'auto'
+          hourly: HOURLY
         });
         const forecast = await fetchJSON(forecastURL);
-        render(place, forecast);
+        if (version !== searchVersion) return;
+        render(place, forecast, activity);
       } catch (error) {
-        setStatus(error.message || 'No se ha podido completar la consulta. Inténtalo de nuevo.', true);
+        if (version === searchVersion) setStatus(error.message || 'No se ha podido completar la consulta. Inténtalo de nuevo.', true);
       } finally {
-        button.disabled = false;
-        button.textContent = 'Buscar horas';
-        form.removeAttribute('aria-busy');
+        if (version === searchVersion) {
+          button.disabled = false;
+          button.textContent = 'Buscar horas';
+          form.removeAttribute('aria-busy');
+        }
       }
     });
+
+    function resetSearch() {
+      searchVersion++;
+      results.hidden = true;
+      button.disabled = false;
+      button.textContent = 'Buscar horas';
+      form.removeAttribute('aria-busy');
+      setStatus('Realiza una nueva búsqueda para consultar el municipio y la actividad elegidos.');
+    }
+    input.addEventListener('input', resetSearch);
+    activityInput.addEventListener('change', resetSearch);
 
     // Avoid showing stale recommendations after returning to a tab or leaving it open.
     function expireResults() {
