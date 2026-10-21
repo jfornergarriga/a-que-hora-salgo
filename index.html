@@ -1,0 +1,248 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#eaf6fd">
+  <title>¿A qué hora salgo?</title>
+  <style>
+    :root { color-scheme: light; font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #173b51; background: #eaf6fd; }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; background: linear-gradient(155deg, #dceffc, #f8fcff 70%); }
+    main { max-width: 760px; margin: auto; padding: 68px 24px 32px; }
+    .eyebrow { margin: 0 0 18px; color: #39718f; font-size: .75rem; font-weight: 750; letter-spacing: .16em; text-transform: uppercase; }
+    h1 { font-size: clamp(2.5rem, 7vw, 4rem); line-height: 1.08; letter-spacing: -.055em; margin: 0 0 20px; }
+    .intro { max-width: 520px; color: #526f80; line-height: 1.7; margin: 0 0 30px; }
+    .panel { background: #fff; border: 1px solid #d5e8f3; border-radius: 24px; padding: 28px; box-shadow: 0 14px 45px #315a7410; }
+    label { display: block; font-size: .9rem; font-weight: 650; margin-bottom: 10px; }
+    .search { display: flex; gap: 10px; }
+    input, button { font: inherit; border-radius: 12px; min-height: 52px; }
+    input { width: 100%; min-width: 0; padding: 12px 16px; background: #f8fcff; border: 1px solid #bbd6e6; color: #173b51; }
+    input::placeholder { color: #6c8594; }
+    button { border: 0; padding: 12px 22px; background: #1679b4; color: white; font-weight: 650; cursor: pointer; white-space: nowrap; }
+    button:hover { background: #116395; }
+    button:disabled { opacity: .65; cursor: wait; }
+    :focus-visible { outline: 3px solid #69b9ea; outline-offset: 3px; }
+    .hint { color: #607d8f; font-size: .8rem; line-height: 1.6; margin: 12px 0 0; }
+    #status { margin: 18px 0 0; line-height: 1.6; }
+    #status:empty { display: none; }
+    #status.error { color: #983c38; }
+    #results { margin-top: 32px; }
+    [hidden] { display: none !important; }
+    .result-heading { display: flex; gap: 16px; align-items: baseline; justify-content: space-between; margin-bottom: 18px; }
+    h2 { margin: 0; font-size: 1.5rem; letter-spacing: -.025em; }
+    #date { color: #526f80; font-size: .85rem; text-align: right; }
+    #summary { color: #526f80; line-height: 1.6; margin: 0 0 18px; }
+    ul { list-style: none; padding: 0; margin: 0; display: grid; gap: 10px; }
+    li { display: grid; grid-template-columns: 1fr 1fr 1fr; align-items: center; gap: 12px; padding: 18px 22px; background: white; border: 1px solid #d5e8f3; border-radius: 16px; }
+    .hour { font-size: 1.4rem; font-weight: 750; letter-spacing: -.03em; }
+    .metric { font-size: 1.05rem; font-weight: 600; }
+    .metric small { display: block; margin-top: 3px; color: #607d8f; font-size: .73rem; font-weight: 400; }
+    details { margin-top: 28px; color: #526f80; font-size: .85rem; line-height: 1.7; }
+    summary { cursor: pointer; }
+    details p { margin: 10px 0 0; }
+    footer { margin-top: 36px; color: #607d8f; font-size: .75rem; line-height: 1.7; }
+    a { color: #236f9d; text-underline-offset: 3px; }
+    @media (max-width: 520px) { main { padding: 40px 18px 24px; } .panel { padding: 20px; } .search { flex-direction: column; } .result-heading { flex-direction: column; gap: 6px; } #date { text-align: left; } li { padding: 16px; gap: 8px; } }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <p class="eyebrow">Tu momento al aire libre</p>
+      <h1>¿A qué hora salgo?</h1>
+      <p class="intro">Encuentra las buenas horas de hoy para disfrutar fuera. Una temperatura agradable y pocas posibilidades de lluvia.</p>
+    </header>
+    <section class="panel" aria-label="Buscar buenas horas">
+      <form id="search-form">
+        <label for="municipality">¿En qué municipio estás?</label>
+        <div class="search">
+          <input id="municipality" name="municipality" type="text" placeholder="Por ejemplo, Sevilla" required maxlength="160" autocomplete="off" aria-describedby="search-hint">
+          <button id="search-button" type="submit">Buscar horas</button>
+        </div>
+        <p class="hint" id="search-hint">Solo las horas que quedan de hoy, en la hora local del municipio.</p>
+      </form>
+      <p id="status" role="status" aria-live="polite" aria-atomic="true"></p>
+    </section>
+    <section id="results" hidden aria-labelledby="location">
+      <div class="result-heading"><h2 id="location"></h2><span id="date"></span></div>
+      <p id="summary"></p>
+      <ul id="hours" aria-label="Buenas horas de hoy"></ul>
+    </section>
+    <details>
+      <summary>¿Qué consideramos una buena hora?</summary>
+      <p>Entre 18 y 27 °C, ambos incluidos, y menos de un 10 % de probabilidad de lluvia. Desde las 06:00 hasta antes de las 23:00, con una pausa de 14:00 a 15:30, incluidos los extremos. La previsión es por horas: durante esa pausa se descartan las 14:00 y las 15:00.</p>
+    </details>
+    <footer>Previsión y ubicaciones de <a href="https://open-meteo.com/" target="_blank" rel="noopener noreferrer">Open-Meteo</a>. Las condiciones son estimaciones y pueden cambiar.</footer>
+  </main>
+  <script>
+    'use strict';
+    const form = document.querySelector('#search-form');
+    const input = document.querySelector('#municipality');
+    const button = document.querySelector('#search-button');
+    const status = document.querySelector('#status');
+    const results = document.querySelector('#results');
+    const hoursList = document.querySelector('#hours');
+    const numberFormat = new Intl.NumberFormat('es-ES', { maximumFractionDigits: 1 });
+
+    function setStatus(message, error = false) {
+      status.textContent = message;
+      status.classList.toggle('error', error);
+    }
+
+    async function fetchJSON(url) {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 15000);
+      try {
+        const response = await fetch(url, { signal: controller.signal });
+        if (!response.ok) throw new Error('El servicio meteorológico no está disponible ahora. Inténtalo de nuevo.');
+        const data = await response.json();
+        if (data.error) throw new Error('El servicio no ha podido completar la consulta. Inténtalo de nuevo.');
+        return data;
+      } catch (error) {
+        if (error.name === 'AbortError') throw new Error('La consulta ha tardado demasiado. Inténtalo de nuevo.');
+        if (error instanceof TypeError) throw new Error('No se ha podido conectar con Open-Meteo. Comprueba tu conexión e inténtalo de nuevo.');
+        if (error instanceof SyntaxError) throw new Error('El servicio ha devuelto una respuesta que no se puede leer. Inténtalo de nuevo.');
+        throw error;
+      } finally {
+        clearTimeout(timeout);
+      }
+    }
+
+    // ISO local strings sort chronologically without applying the browser's timezone.
+    function localNow(timezone) {
+      const parts = new Intl.DateTimeFormat('en-GB', {
+        timeZone: timezone, year: 'numeric', month: '2-digit', day: '2-digit',
+        hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23'
+      }).formatToParts(new Date());
+      const values = Object.fromEntries(parts.map(part => [part.type, part.value]));
+      return `${values.year}-${values.month}-${values.day}T${values.hour}:${values.minute}:${values.second}`;
+    }
+
+    function selectHours(hourly, now) {
+      if (!hourly || !Array.isArray(hourly.time) || !Array.isArray(hourly.temperature_2m) ||
+          !Array.isArray(hourly.precipitation_probability) || !hourly.time.length ||
+          hourly.time.length !== hourly.temperature_2m.length ||
+          hourly.time.length !== hourly.precipitation_probability.length) {
+        throw new Error('La previsión recibida está incompleta. Inténtalo de nuevo.');
+      }
+      const upcoming = [];
+      const good = [];
+      let missing = 0;
+      hourly.time.forEach((time, index) => {
+        if (typeof time !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(time)) {
+          throw new Error('La previsión recibida contiene horas inválidas. Inténtalo de nuevo.');
+        }
+        if (time.slice(0, 10) !== now.slice(0, 10) || `${time}:00` <= now) return;
+        upcoming.push(time);
+        const temperature = hourly.temperature_2m[index];
+        const rain = hourly.precipitation_probability[index];
+        if (!Number.isFinite(temperature) || !Number.isFinite(rain) || rain < 0 || rain > 100) { missing++; return; }
+        const minutes = Number(time.slice(11, 13)) * 60 + Number(time.slice(14, 16));
+        if (temperature >= 18 && temperature <= 27 && rain < 10 &&
+            minutes >= 360 && minutes < 1380 && !(minutes >= 840 && minutes <= 930)) {
+          good.push({ time, temperature, rain });
+        }
+      });
+      if (upcoming.length && missing === upcoming.length) {
+        throw new Error('No hay datos meteorológicos válidos para las horas restantes. Inténtalo de nuevo.');
+      }
+      good.sort((a, b) => a.time.localeCompare(b.time));
+      return { good, missing };
+    }
+
+    function render(place, forecast) {
+      const timezone = forecast.timezone || place.timezone;
+      if (!timezone) throw new Error('No se ha podido determinar la zona horaria del municipio. Inténtalo de nuevo.');
+      const now = localNow(timezone);
+      const { good, missing } = selectHours(forecast.hourly, now);
+      document.querySelector('#location').textContent = [place.name, place.country].filter(Boolean).join(', ');
+      document.querySelector('#date').textContent = new Intl.DateTimeFormat('es-ES', {
+        timeZone: timezone, weekday: 'long', day: 'numeric', month: 'long'
+      }).format(new Date());
+      const summary = good.length
+        ? `${good.length === 1 ? 'Queda 1 buena hora' : `Quedan ${good.length} buenas horas`} para salir hoy. Horas locales de ${place.name}.`
+        : 'Hoy no quedan buenas horas que cumplan estas condiciones.';
+      document.querySelector('#summary').textContent = summary + (missing ? ' Algunas horas no tienen datos completos y se han omitido.' : '');
+      hoursList.replaceChildren();
+      for (const entry of good) {
+        const item = document.createElement('li');
+        const hour = document.createElement('time');
+        hour.className = 'hour';
+        hour.dateTime = entry.time;
+        hour.textContent = entry.time.slice(11, 16);
+        item.append(hour);
+        for (const [value, label] of [[`${numberFormat.format(entry.temperature)} °C`, 'Temperatura'], [`${numberFormat.format(entry.rain)} %`, 'Prob. de lluvia']]) {
+          const metric = document.createElement('span');
+          metric.className = 'metric';
+          metric.textContent = value;
+          const caption = document.createElement('small');
+          caption.textContent = label;
+          metric.append(caption);
+          item.append(metric);
+        }
+        hoursList.append(item);
+      }
+      results.hidden = false;
+      setStatus(good.length ? 'Previsión actualizada. Ya puedes consultar las buenas horas.' : 'Consulta completada. Hoy no quedan horas que cumplan las condiciones.');
+    }
+
+    form.addEventListener('submit', async event => {
+      event.preventDefault();
+      if (button.disabled) return;
+      const municipality = input.value.trim();
+      if (!municipality) {
+        setStatus('Escribe un municipio para buscar sus buenas horas.', true);
+        input.focus();
+        return;
+      }
+      button.disabled = true;
+      button.textContent = 'Consultando…';
+      form.setAttribute('aria-busy', 'true');
+      results.hidden = true;
+      setStatus('Buscando el municipio…');
+      try {
+        const geoURL = new URL('https://geocoding-api.open-meteo.com/v1/search');
+        geoURL.search = new URLSearchParams({ name: municipality, count: '1', language: 'es' });
+        const geo = await fetchJSON(geoURL);
+        if (!Array.isArray(geo.results) || !geo.results.length) {
+          setStatus('El municipio introducido no es válido, por favor introduzca otro.', true);
+          input.focus();
+          return;
+        }
+        const place = geo.results[0];
+        if (!Number.isFinite(place.latitude) || !Number.isFinite(place.longitude)) {
+          throw new Error('No se han recibido coordenadas válidas para el municipio. Inténtalo de nuevo.');
+        }
+        setStatus(`Consultando la previsión de ${place.name}…`);
+        const forecastURL = new URL('https://api.open-meteo.com/v1/forecast');
+        forecastURL.search = new URLSearchParams({
+          latitude: String(place.latitude), longitude: String(place.longitude),
+          hourly: 'temperature_2m,precipitation_probability', forecast_days: '1',
+          timezone: place.timezone || 'auto'
+        });
+        const forecast = await fetchJSON(forecastURL);
+        render(place, forecast);
+      } catch (error) {
+        setStatus(error.message || 'No se ha podido completar la consulta. Inténtalo de nuevo.', true);
+      } finally {
+        button.disabled = false;
+        button.textContent = 'Buscar horas';
+        form.removeAttribute('aria-busy');
+      }
+    });
+
+    // Avoid showing stale recommendations after returning to a tab or leaving it open.
+    function expireResults() {
+      if (!results.hidden) {
+        results.hidden = true;
+        setStatus('Actualiza la búsqueda para consultar las horas que quedan ahora.');
+      }
+    }
+    setInterval(expireResults, 60000);
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') expireResults();
+    });
+  </script>
+</body>
+</html>
