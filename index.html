@@ -35,6 +35,8 @@
     #summary { color: #526f80; line-height: 1.6; margin: 0 0 18px; }
     ul { list-style: none; padding: 0; margin: 0; display: grid; gap: 10px; }
     li { display: grid; grid-template-columns: 1fr 1fr 1fr; align-items: center; gap: 12px; padding: 18px 22px; background: white; border: 1px solid #d5e8f3; border-radius: 16px; }
+    li:not(.not-good) { border-color: #008cff; }
+    li.not-good { background: #eef0f2; border: 1px dashed #9ca8b0; }
     .hour { font-size: 1.4rem; font-weight: 750; letter-spacing: -.03em; }
     .metric { font-size: 1.05rem; font-weight: 600; }
     .metric small { display: block; margin-top: 3px; color: #607d8f; font-size: .73rem; font-weight: 400; }
@@ -67,11 +69,11 @@
     <section id="results" hidden aria-labelledby="location">
       <div class="result-heading"><h2 id="location"></h2><span id="date"></span></div>
       <p id="summary"></p>
-      <ul id="hours" aria-label="Buenas horas de hoy"></ul>
+      <ul id="hours" aria-label="Todas las horas restantes de hoy"></ul>
     </section>
     <details>
       <summary>¿Qué consideramos una buena hora?</summary>
-      <p>Entre 18 y 27 °C, ambos incluidos, y menos de un 10 % de probabilidad de lluvia. Desde las 06:00 hasta antes de las 23:00, con una pausa de 14:00 a 15:30, incluidos los extremos. La previsión es por horas: durante esa pausa se descartan las 14:00 y las 15:00.</p>
+      <p>Entre 18 y 27 °C, ambos incluidos, y menos de un 10 % de probabilidad de lluvia. Desde las 06:00 hasta antes de las 23:00, con una pausa de 14:00 a 15:30, incluidos los extremos. La previsión es por horas: las 14:00 y las 15:00 no se consideran buenas horas.</p>
     </details>
     <footer>Previsión y ubicaciones de <a href="https://open-meteo.com/" target="_blank" rel="noopener noreferrer">Open-Meteo</a>. Las condiciones son estimaciones y pueden cambiar.</footer>
   </main>
@@ -127,52 +129,55 @@
         throw new Error('La previsión recibida está incompleta. Inténtalo de nuevo.');
       }
       const upcoming = [];
-      const good = [];
       let missing = 0;
       hourly.time.forEach((time, index) => {
         if (typeof time !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(time)) {
           throw new Error('La previsión recibida contiene horas inválidas. Inténtalo de nuevo.');
         }
         if (time.slice(0, 10) !== now.slice(0, 10) || `${time}:00` <= now) return;
-        upcoming.push(time);
         const temperature = hourly.temperature_2m[index];
         const rain = hourly.precipitation_probability[index];
-        if (!Number.isFinite(temperature) || !Number.isFinite(rain) || rain < 0 || rain > 100) { missing++; return; }
+        const hasTemperature = Number.isFinite(temperature);
+        const hasRain = Number.isFinite(rain) && rain >= 0 && rain <= 100;
+        if (!hasTemperature || !hasRain) missing++;
         const minutes = Number(time.slice(11, 13)) * 60 + Number(time.slice(14, 16));
-        if (temperature >= 18 && temperature <= 27 && rain < 10 &&
-            minutes >= 360 && minutes < 1380 && !(minutes >= 840 && minutes <= 930)) {
-          good.push({ time, temperature, rain });
-        }
+        const isGood = hasTemperature && hasRain && temperature >= 18 && temperature <= 27 && rain < 10 &&
+          minutes >= 360 && minutes < 1380 && !(minutes >= 840 && minutes <= 930);
+        upcoming.push({ time, temperature: hasTemperature ? temperature : null, rain: hasRain ? rain : null, isGood });
       });
-      if (upcoming.length && missing === upcoming.length) {
-        throw new Error('No hay datos meteorológicos válidos para las horas restantes. Inténtalo de nuevo.');
-      }
-      good.sort((a, b) => a.time.localeCompare(b.time));
-      return { good, missing };
+      upcoming.sort((a, b) => a.time.localeCompare(b.time));
+      return { upcoming, missing };
     }
 
     function render(place, forecast) {
       const timezone = forecast.timezone || place.timezone;
       if (!timezone) throw new Error('No se ha podido determinar la zona horaria del municipio. Inténtalo de nuevo.');
       const now = localNow(timezone);
-      const { good, missing } = selectHours(forecast.hourly, now);
+      const { upcoming, missing } = selectHours(forecast.hourly, now);
+      const goodCount = upcoming.filter(entry => entry.isGood).length;
       document.querySelector('#location').textContent = [place.name, place.country].filter(Boolean).join(', ');
       document.querySelector('#date').textContent = new Intl.DateTimeFormat('es-ES', {
         timeZone: timezone, weekday: 'long', day: 'numeric', month: 'long'
       }).format(new Date());
-      const summary = good.length
-        ? `${good.length === 1 ? 'Queda 1 buena hora' : `Quedan ${good.length} buenas horas`} para salir hoy. Horas locales de ${place.name}.`
-        : 'Hoy no quedan buenas horas que cumplan estas condiciones.';
-      document.querySelector('#summary').textContent = summary + (missing ? ' Algunas horas no tienen datos completos y se han omitido.' : '');
+      const summary = !upcoming.length
+        ? 'Hoy no quedan horas de previsión por mostrar.'
+        : goodCount
+          ? `${goodCount === 1 ? 'Queda 1 buena hora' : `Quedan ${goodCount} buenas horas`} para salir hoy.`
+          : 'Hoy no quedan buenas horas que cumplan estas condiciones.';
+      document.querySelector('#summary').textContent = summary + ` Horas locales de ${place.name}.` +
+        (upcoming.length ? ' Las buenas horas tienen fondo blanco y borde azul brillante; las demás, fondo gris y borde discontinuo.' : '') +
+        (missing ? ' Algunas horas tienen datos incompletos: se indican con «Sin datos» y no se destacan como buenas.' : '');
       hoursList.replaceChildren();
-      for (const entry of good) {
+      for (const entry of upcoming) {
         const item = document.createElement('li');
+        if (!entry.isGood) item.className = 'not-good';
+        item.setAttribute('aria-label', `${entry.time.slice(11, 16)}: ${entry.isGood ? 'buena hora' : 'no cumple las condiciones de buena hora'}`);
         const hour = document.createElement('time');
         hour.className = 'hour';
         hour.dateTime = entry.time;
         hour.textContent = entry.time.slice(11, 16);
         item.append(hour);
-        for (const [value, label] of [[`${numberFormat.format(entry.temperature)} °C`, 'Temperatura'], [`${numberFormat.format(entry.rain)} %`, 'Prob. de lluvia']]) {
+        for (const [value, label] of [[entry.temperature === null ? 'Sin datos' : `${numberFormat.format(entry.temperature)} °C`, 'Temperatura'], [entry.rain === null ? 'Sin datos' : `${numberFormat.format(entry.rain)} %`, 'Prob. de lluvia']]) {
           const metric = document.createElement('span');
           metric.className = 'metric';
           metric.textContent = value;
@@ -184,7 +189,7 @@
         hoursList.append(item);
       }
       results.hidden = false;
-      setStatus(good.length ? 'Previsión actualizada. Ya puedes consultar las buenas horas.' : 'Consulta completada. Hoy no quedan horas que cumplan las condiciones.');
+      setStatus(upcoming.length ? 'Previsión actualizada. Ya puedes consultar todas las horas restantes de hoy y distinguir las buenas horas.' : 'Consulta completada. Hoy no quedan horas de previsión por mostrar.');
     }
 
     form.addEventListener('submit', async event => {
